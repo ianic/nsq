@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -36,6 +37,8 @@ func main() {
 	goChan := make(chan int)
 	rdyChan := make(chan int)
 	workers := runtime.GOMAXPROCS(0)
+	// log.Printf("starting %d workers", workers)
+
 	for j := 0; j < workers; j++ {
 		wg.Add(1)
 		go func(id int) {
@@ -61,11 +64,12 @@ func main() {
 	end := time.Now()
 	duration := end.Sub(start)
 	tmc := atomic.LoadInt64(&totalMsgCount)
-	log.Printf("duration: %s - %.03fmb/s - %.03fops/s - %.03fus/op",
-		duration,
+	log.Printf("duration: %s - %.03fmb/s - %.03fops/s - %.03fus/op messages: %d",
+		duration.Round(time.Second),
 		float64(tmc*int64(*size))/duration.Seconds()/1024/1024,
 		float64(tmc)/duration.Seconds(),
-		float64(duration/time.Microsecond)/float64(tmc))
+		float64(duration/time.Microsecond)/float64(tmc),
+		tmc)
 }
 
 func subWorker(td time.Duration, workers int, tcpAddr string, topic string, channel string, rdyChan chan int, goChan chan int, id int) {
@@ -73,6 +77,8 @@ func subWorker(td time.Duration, workers int, tcpAddr string, topic string, chan
 	if err != nil {
 		panic(err.Error())
 	}
+	_ = conn.SetReadDeadline(time.Now().Add(td + time.Second))
+
 	conn.Write(nsq.MagicV2)
 	rw := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
 	ci := make(map[string]interface{})
@@ -86,20 +92,48 @@ func subWorker(td time.Duration, workers int, tcpAddr string, topic string, chan
 	<-goChan
 	nsq.Ready(*rdy).WriteTo(rw)
 	rw.Flush()
-	nsq.ReadResponse(rw)
-	nsq.ReadResponse(rw)
+	// two OK responses
+	_, err = nsq.ReadResponse(rw)
+	if err != nil {
+		panic(err.Error())
+	}
+	_, err = nsq.ReadResponse(rw)
+	if err != nil {
+		panic(err.Error())
+	}
+
 	var msgCount int64
+	done := make(chan struct{})
 	go func() {
 		time.Sleep(td)
-		conn.Close()
+		close(done)
+		//time.Sleep(100 * time.Millisecond)
+		//conn.Close()
 	}()
+	var closing = false
+
+	// clean close will not leave in flight messages
+	// it will send fin for each message
+	// unclean can lave something in flight and force server to requeue
+	const clean_close = true
+out:
 	for {
 		resp, err := nsq.ReadResponse(rw)
 		if err != nil {
 			if strings.Contains(err.Error(), "use of closed network connection") {
+				log.Print(err)
 				break
 			}
+			if os.IsTimeout(err) {
+				log.Print(err)
+				break out
+			}
+			log.Printf("messages count: %d worker %d", msgCount, id)
 			panic(err.Error())
+		}
+		if len(resp) == 0 {
+			log.Printf("EOF")
+			break
 		}
 		frameType, data, err := nsq.UnpackResponse(resp)
 		if err != nil {
@@ -108,8 +142,15 @@ func subWorker(td time.Duration, workers int, tcpAddr string, topic string, chan
 		if frameType == nsq.FrameTypeError {
 			panic(string(data))
 		} else if frameType == nsq.FrameTypeResponse {
+			if string(data) == "CLOSE_WAIT" {
+				// log.Printf("close wait received %s", data)
+				break out
+			}
 			continue
 		}
+		// if len(data) != 234-4-4 {
+		// 	panic(len(data))
+		// }
 		msg, err := nsq.DecodeMessage(data)
 		if err != nil {
 			panic(err.Error())
@@ -119,6 +160,21 @@ func subWorker(td time.Duration, workers int, tcpAddr string, topic string, chan
 		if float64(msgCount%int64(*rdy)) > float64(*rdy)*0.75 {
 			rw.Flush()
 		}
+
+		if !closing {
+			select {
+			case <-done:
+				if clean_close {
+					nsq.StartClose().WriteTo(rw)
+					closing = true
+				} else {
+					break out
+				}
+			default:
+			}
+		}
 	}
+	rw.Flush()
+	conn.Close()
 	atomic.AddInt64(&totalMsgCount, msgCount)
 }

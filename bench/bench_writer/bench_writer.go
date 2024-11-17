@@ -36,10 +36,12 @@ func main() {
 	for i := range batch {
 		batch[i] = msg
 	}
+	workers := runtime.GOMAXPROCS(0)
+	//log.Printf("starting %d workers", workers)
 
 	goChan := make(chan int)
 	rdyChan := make(chan int)
-	for j := 0; j < runtime.GOMAXPROCS(0); j++ {
+	for j := 0; j < workers; j++ {
 		wg.Add(1)
 		go func() {
 			pubWorker(*runfor, *tcpAddress, *batchSize, batch, *topic, rdyChan, goChan)
@@ -64,11 +66,12 @@ func main() {
 	end := time.Now()
 	duration := end.Sub(start)
 	tmc := atomic.LoadInt64(&totalMsgCount)
-	log.Printf("duration: %s - %.03fmb/s - %.03fops/s - %.03fus/op",
-		duration,
+	log.Printf("duration: %s - %.03fmb/s - %.03fops/s - %.03fus/op messages: %d",
+		duration.Round(time.Second),
 		float64(tmc*int64(*size))/duration.Seconds()/1024/1024,
 		float64(tmc)/duration.Seconds(),
-		float64(duration/time.Microsecond)/float64(tmc))
+		float64(duration/time.Microsecond)/float64(tmc),
+		tmc)
 }
 
 func pubWorker(td time.Duration, tcpAddr string, batchSize int, batch [][]byte, topic string, rdyChan chan int, goChan chan int) {

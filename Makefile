@@ -1,4 +1,4 @@
-PREFIX=/usr/local
+PREFIX=~/.local
 BINDIR=${PREFIX}/bin
 DESTDIR=
 BLDDIR=build

@@ -1,7 +1,7 @@
 #!/bin/bash
 readonly messageSize="${1:-200}"
 readonly batchSize="${2:-200}"
-readonly memQueueSize="${3:-1000000}"
+readonly memQueueSize="${3:-32000000}"
 readonly dataPath="${4:-}"
 set -e
 set -u
@@ -11,7 +11,7 @@ echo "# compiling/running nsqd"
 pushd apps/nsqd >/dev/null
 go build
 rm -f *.dat
-./nsqd --mem-queue-size=$memQueueSize --data-path=$dataPath >/dev/null 2>&1 &
+./nsqd --mem-queue-size=$memQueueSize --data-path=$dataPath >nsq.log 2>&1 &
 nsqd_pid=$!
 popd >/dev/null
 
