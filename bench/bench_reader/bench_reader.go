@@ -125,7 +125,7 @@ out:
 				break
 			}
 			if os.IsTimeout(err) {
-				log.Print(err)
+				// log.Print(err)
 				break out
 			}
 			log.Printf("messages count: %d worker %d", msgCount, id)
@@ -148,18 +148,12 @@ out:
 			}
 			continue
 		}
-		// if len(data) != 234-4-4 {
-		// 	panic(len(data))
-		// }
 		msg, err := nsq.DecodeMessage(data)
 		if err != nil {
 			panic(err.Error())
 		}
 		nsq.Finish(msg.ID).WriteTo(rw)
 		msgCount++
-		if float64(msgCount%int64(*rdy)) > float64(*rdy)*0.75 {
-			rw.Flush()
-		}
 
 		if !closing {
 			select {
