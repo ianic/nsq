@@ -31,11 +31,17 @@ func main() {
 
 	log.SetPrefix("[bench_writer] ")
 
-	msg := make([]byte, *size)
+	n := 0
 	batch := make([][]byte, *batchSize)
-	for i := range batch {
-		batch[i] = msg
+	for k := range batch {
+		msg := make([]byte, *size)
+		for l := range msg {
+			msg[l] = byte(n % 256)
+			n += 1
+		}
+		batch[k] = msg
 	}
+
 	workers := runtime.GOMAXPROCS(0)
 	//log.Printf("starting %d workers", workers)
 
