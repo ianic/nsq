@@ -50,7 +50,7 @@ func main() {
 	for j := 0; j < workers; j++ {
 		wg.Add(1)
 		go func() {
-			pubWorker(*runfor, *tcpAddress, *batchSize, batch, *topic, rdyChan, goChan)
+			pubWorker(*runfor, *tcpAddress, batch, *topic, rdyChan, goChan)
 			wg.Done()
 		}()
 		<-rdyChan
@@ -80,13 +80,13 @@ func main() {
 		tmc)
 }
 
-func pubWorker(td time.Duration, tcpAddr string, batchSize int, batch [][]byte, topic string, rdyChan chan int, goChan chan int) {
+func pubWorker(td time.Duration, tcpAddr string, batch [][]byte, topic string, rdyChan chan int, goChan chan int) {
 	conn, err := net.DialTimeout("tcp", tcpAddr, time.Second)
 	if err != nil {
 		panic(err.Error())
 	}
 	conn.Write(nsq.MagicV2)
-	rw := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
+	rw := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriterSize(conn, (*size+34)**batchSize))
 	ci := make(map[string]interface{})
 	ci["client_id"] = "writer"
 	ci["hostname"] = "writer"
