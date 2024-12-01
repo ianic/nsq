@@ -43,6 +43,7 @@ func main() {
 	}
 
 	workers := runtime.GOMAXPROCS(0)
+	workers = 4
 	//log.Printf("starting %d workers", workers)
 
 	goChan := make(chan int)
@@ -86,7 +87,7 @@ func pubWorker(td time.Duration, tcpAddr string, batch [][]byte, topic string, r
 		panic(err.Error())
 	}
 	conn.Write(nsq.MagicV2)
-	rw := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriterSize(conn, (*size+34)**batchSize))
+	rw := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriterSize(conn, (*size+4)**batchSize+128))
 	ci := make(map[string]interface{})
 	ci["client_id"] = "writer"
 	ci["hostname"] = "writer"
