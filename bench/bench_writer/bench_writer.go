@@ -43,7 +43,7 @@ func main() {
 	}
 
 	workers := runtime.GOMAXPROCS(0)
-	workers = 4
+	workers = 6
 	//log.Printf("starting %d workers", workers)
 
 	goChan := make(chan int)

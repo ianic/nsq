@@ -37,6 +37,7 @@ func main() {
 	goChan := make(chan int)
 	rdyChan := make(chan int)
 	workers := runtime.GOMAXPROCS(0)
+	workers = 6
 	// log.Printf("starting %d workers", workers)
 
 	for j := 0; j < workers; j++ {

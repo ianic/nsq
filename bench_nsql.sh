@@ -46,7 +46,7 @@ bench/bench_writer/bench_writer --size=$messageSize --batch-size=$batchSize 2>&1
 # pprof_pid=$!
 
 echo -n "SUB: "
-bench/bench_reader/bench_reader --size=$messageSize --runfor 10s --channel=ch 2>&1
+bench/bench_reader/bench_reader --size=$messageSize --runfor 7s --channel=ch 2>&1
 
 #echo "waiting for pprof..."
 #wait $pprof_pid
