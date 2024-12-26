@@ -20,6 +20,7 @@ var (
 	topic      = flag.String("topic", "sub_bench", "topic to receive messages on")
 	size       = flag.Int("size", 200, "size of messages")
 	batchSize  = flag.Int("batch-size", 200, "batch size of messages")
+	workers    = flag.Int("workers", runtime.GOMAXPROCS(0)/4, "number of writer workers (threads)")
 	deadline   = flag.String("deadline", "", "deadline to start the benchmark run")
 )
 
@@ -42,13 +43,11 @@ func main() {
 		batch[k] = msg
 	}
 
-	workers := runtime.GOMAXPROCS(0)
-	workers = 6
-	//log.Printf("starting %d workers", workers)
+	// log.Printf("starting %d workers", workers)
 
 	goChan := make(chan int)
 	rdyChan := make(chan int)
-	for j := 0; j < workers; j++ {
+	for j := 0; j < *workers; j++ {
 		wg.Add(1)
 		go func() {
 			pubWorker(*runfor, *tcpAddress, batch, *topic, rdyChan, goChan)
@@ -94,12 +93,15 @@ func pubWorker(td time.Duration, tcpAddr string, batch [][]byte, topic string, r
 	ci["user_agent"] = fmt.Sprintf("bench_writer/%s", nsq.VERSION)
 	cmd, _ := nsq.Identify(ci)
 	cmd.WriteTo(rw)
-	rdyChan <- 1
-	<-goChan
 	rw.Flush()
 	nsq.ReadResponse(rw)
+
+	rdyChan <- 1
+	<-goChan
+
 	var msgCount int64
 	endTime := time.Now().Add(td)
+
 	for {
 		cmd, _ := nsq.MultiPublish(topic, batch)
 		_, err := cmd.WriteTo(rw)
