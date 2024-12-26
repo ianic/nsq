@@ -2,8 +2,10 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -19,14 +21,16 @@ import (
 var (
 	runfor     = flag.Duration("runfor", 10*time.Second, "duration of time to run")
 	tcpAddress = flag.String("nsqd-tcp-address", "127.0.0.1:4150", "<addr>:<port> to connect to nsqd")
-	size       = flag.Int("size", 200, "size of messages")
+	__size     = flag.Int("size", 200, "size of messages")
 	topic      = flag.String("topic", "sub_bench", "topic to receive messages on")
 	channel    = flag.String("channel", "ch", "channel to receive messages on")
 	deadline   = flag.String("deadline", "", "deadline to start the benchmark run")
 	rdy        = flag.Int("rdy", 2500, "RDY count to use")
+	workers    = flag.Int("workers", runtime.GOMAXPROCS(0)/2, "number of writer workeres (threads)")
 )
 
-var totalMsgCount int64
+var totalMsgCount uint64
+var totalMsgBytes uint64
 
 func main() {
 	flag.Parse()
@@ -36,14 +40,14 @@ func main() {
 
 	goChan := make(chan int)
 	rdyChan := make(chan int)
-	workers := runtime.GOMAXPROCS(0)
-	workers = 6
+	//workers := runtime.GOMAXPROCS(0)
+	//workers = 6
 	// log.Printf("starting %d workers", workers)
 
-	for j := 0; j < workers; j++ {
+	for j := 0; j < *workers; j++ {
 		wg.Add(1)
 		go func(id int) {
-			subWorker(*runfor, workers, *tcpAddress, *topic, *channel, rdyChan, goChan, id)
+			subWorker(*runfor, *tcpAddress, *topic, *channel, rdyChan, goChan, id)
 			wg.Done()
 		}(j)
 		<-rdyChan
@@ -64,21 +68,22 @@ func main() {
 	wg.Wait()
 	end := time.Now()
 	duration := end.Sub(start)
-	tmc := atomic.LoadInt64(&totalMsgCount)
+	tmc := atomic.LoadUint64(&totalMsgCount)
+	tmb := atomic.LoadUint64(&totalMsgBytes)
 	log.Printf("duration: %s - %.03fmb/s - %.03fops/s - %.03fus/op messages: %d",
 		duration.Round(time.Second),
-		float64(tmc*int64(*size))/duration.Seconds()/1024/1024,
+		float64(tmb)/duration.Seconds()/1024/1024,
 		float64(tmc)/duration.Seconds(),
 		float64(duration/time.Microsecond)/float64(tmc),
 		tmc)
 }
 
-func subWorker(td time.Duration, workers int, tcpAddr string, topic string, channel string, rdyChan chan int, goChan chan int, id int) {
-	conn, err := net.DialTimeout("tcp", tcpAddr, time.Second)
+func subWorker(td time.Duration, tcpAddr string, topic string, channel string, rdyChan chan int, goChan chan int, id int) {
+	conn, err := net.DialTimeout("tcp", tcpAddr, 5*time.Second)
 	if err != nil {
 		panic(err.Error())
 	}
-	_ = conn.SetReadDeadline(time.Now().Add(td + time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(td + 5*time.Second))
 
 	conn.Write(nsq.MagicV2)
 	rw := bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))
@@ -103,7 +108,8 @@ func subWorker(td time.Duration, workers int, tcpAddr string, topic string, chan
 		panic(err.Error())
 	}
 
-	var msgCount int64
+	var msgCount uint64
+	var msgBytes uint64
 	done := make(chan struct{})
 	go func() {
 		time.Sleep(td)
@@ -125,7 +131,7 @@ out:
 				log.Print(err)
 				break
 			}
-			if os.IsTimeout(err) {
+			if os.IsTimeout(err) || errors.Is(err, io.EOF) {
 				// log.Print(err)
 				break out
 			}
@@ -141,7 +147,12 @@ out:
 			panic(err.Error())
 		}
 		if frameType == nsq.FrameTypeError {
-			panic(string(data))
+			if string(data) == "E_FIN_FAILED" || string(data) == "E_INVALID" {
+				log.Println(string(data))
+			} else {
+				panic(string(data))
+			}
+			continue
 		} else if frameType == nsq.FrameTypeResponse {
 			if string(data) == "CLOSE_WAIT" {
 				// log.Printf("close wait received %s", data)
@@ -153,6 +164,7 @@ out:
 		if err != nil {
 			panic(err.Error())
 		}
+		msgBytes += uint64(len(msg.Body))
 		nsq.Finish(msg.ID).WriteTo(rw)
 		msgCount++
 
@@ -171,5 +183,6 @@ out:
 	}
 	rw.Flush()
 	conn.Close()
-	atomic.AddInt64(&totalMsgCount, msgCount)
+	atomic.AddUint64(&totalMsgCount, msgCount)
+	atomic.AddUint64(&totalMsgBytes, msgBytes)
 }
