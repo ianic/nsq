@@ -8,10 +8,10 @@ set -u
 
 echo "# using --mem-queue-size=$memQueueSize --data-path=$dataPath --size=$messageSize --batch-size=$batchSize"
 echo "# compiling/running nsql"
-pushd ../../nsql/ >/dev/null
+pushd ../../nsqx/ >/dev/null
 zig build -Doptimize=ReleaseFast
 rm -f ./tmp/nsql.dump ./tmp/sub_bench
-./zig-out/bin/nsql &
+./zig-out/bin/nsqxd &
 nsqd_pid=$!
 
 popd >/dev/null
@@ -40,13 +40,13 @@ sleep 0.3
 # bench/bench_reader/bench_reader --runfor 0 2>/dev/null
 
 echo -n "PUB: "
-bench/bench_writer/bench_writer --size=$messageSize --batch-size=$batchSize 2>&1
+bench/bench_writer/bench_writer --runfor 12s --size=$messageSize --batch-size=$batchSize 2>&1
 
 # curl -s -o cpu.pprof http://127.0.0.1:4151/debug/pprof/profile &
 # pprof_pid=$!
 
 echo -n "SUB: "
-bench/bench_reader/bench_reader --size=$messageSize --runfor 7s --channel=ch 2>&1
+bench/bench_reader/bench_reader --size=$messageSize --runfor 10s --channel=ch 2>&1
 
 #echo "waiting for pprof..."
 #wait $pprof_pid
